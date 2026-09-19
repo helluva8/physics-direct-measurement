@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Расчет погрешностей</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #563d6b;
+            color: #333;
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background: #fff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 500px;
+        }
+        h1 {
+            font-size: 1.2rem;
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        .section {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            border: 1px solid #eee;
+        }
+        .section-title {
+            font-weight: bold;
+            font-size: 0.9rem;
+            color: #555;
+            margin-bottom: 10px;
+            display: block;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #553737;
+            border-radius: 6px;
+            font-size: 1rem;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #080808;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:active {
+            background-color: #45a049;
+        }
+        button.secondary {
+            background-color: #0d0d0e;
+            margin-bottom: 10px;
+        }
+        button.secondary:active {
+            background-color: #080808;
+        }
+        .values-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+        .result-box {
+            margin-top: 20px;
+            padding: 15px;
+            background: #080808;
+            color: #fdffff;
+            border-radius: 8px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            display: none;
+            line-height: 1.5;
+        }
+        .hidden {
+            display: none;
+        }
+        .error-msg {
+            color: red;
+            font-size: 0.8rem;
+            margin-top: -5px;
+            margin-bottom: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Расчёт погрешностей прямых измерений</h1>
+
+    <div class="section">
+        <span class="section-title">Параметры</span>
+        <label>Число измерений (n):</label>
+        <input type="number" id="n" value="3" min="2" max="20">
+        
+        <label>Цена деления прибора:</label>
+        <input type="number" id="price" value="0.01" step="any">
+        
+        <button class="secondary" onclick="createFields()">Создать поля</button>
+    </div>
+
+    <div class="section" id="values-section">
+        <span class="section-title">Значения измерений</span>
+        <div id="values-container" class="values-grid">
+            <!-- Поля создаются динамически -->
+        </div>
+    </div>
+
+    <button onclick="calculate()">ВЫЧИСЛИТЬ</button>
+
+    <div class="result-box" id="result"></div>
+</div>
+
+<script>
+    // Функция для создания полей ввода
+    function createFields() {
+        const nInput = document.getElementById('n');
+        const n = parseInt(nInput.value);
+        const container = document.getElementById('values-container');
+        const errorMsg = document.querySelector('.error-msg') || document.createElement('div');
+        
+        // Валидация
+        if (isNaN(n) || n < 2) {
+            alert("Число измерений должно быть больше 1");
+            return;
+        }
+        if (n > 50) {
+            alert("Слишком много измерений, максимум 50");
+            return;
+        }
+
+        // Очистка контейнера
+        container.innerHTML = '';
+        
+        // Создание полей
+        for (let i = 1; i <= n; i++) {
+            const label = document.createElement('label');
+            label.textContent = `x${i} =`;
+            
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = 'any';
+            input.id = `x${i}`;
+            input.placeholder = `Введите x${i}`;
+            
+            container.appendChild(label);
+            container.appendChild(input);
+        }
+    }
+
+    // Таблица коэффициентов Стьюдента для P=0.95 (если нет внешней библиотеки)
+    // Так как это HTML, мы не можем использовать scipy, поэтому используем таблицу
+    const studentTable = {
+        2: 12.706, 3: 4.303, 4: 3.182, 5: 2.776,
+        6: 2.571, 7: 2.447, 8: 2.365, 9: 2.306, 10: 2.262,
+        11: 2.228, 12: 2.201, 13: 2.179, 14: 2.160, 15: 2.145,
+        16: 2.131, 17: 2.120, 18: 2.110, 19: 2.103, 20: 2.093,
+        25: 2.064, 30: 2.045, 40: 2.021, 50: 2.009
+    };
+
+    function getStudentCoeff(n) {
+        if (studentTable[n]) {
+            return studentTable[n];
+        }
+        // Если n больше 50, используем 1.96 (нормальное распределение)
+        return 1.96;
+    }
+
+    // Основная функция расчета
+    function calculate() {
+        const resultBox = document.getElementById('result');
+        const n = parseInt(document.getElementById('n').value);
+        const price = parseFloat(document.getElementById('price').value.replace(',', '.'));
+
+        if (isNaN(n) || n < 2) {
+            alert("Ошибка: неверное число измерений");
+            return;
+        }
+        if (isNaN(price)) {
+            alert("Ошибка: неверная цена деления");
+            return;
+        }
+
+        // Считывание значений
+        let values = [];
+        for (let i = 1; i <= n; i++) {
+            const valInput = document.getElementById(`x${i}`);
+            if (!valInput) {
+                alert(`Ошибка: поле x${i} не найдено. Нажмите "Создать поля".`);
+                return;
+            }
+            let val = parseFloat(valInput.value.replace(',', '.'));
+            if (isNaN(val)) {
+                alert(`Ошибка: введите число в поле x${i}`);
+                return;
+            }
+            values.push(val);
+        }
+
+        // --- РАСЧЕТЫ ---
+
+        // 1. Среднее значение
+        const mean = values.reduce((a, b) => a + b, 0) / n;
+
+        // 2. СКО отдельного измерения
+        const sumSqDiff = values.reduce((acc, x) => acc + Math.pow(x - mean, 2), 0);
+        const sx = n > 1 ? Math.sqrt(sumSqDiff / (n * (n - 1))) : 0;
+
+        // 3. Коэффициент Стьюдента
+        const tCoeff = getStudentCoeff(n);
+
+        // 4. Случайная погрешность
+        const deltaRandom = tCoeff * sx;
+
+        // 5. Приборная погрешность
+        const deltaDevice = price / 2;
+
+        // 6. Полная абсолютная погрешность
+        const deltaTotal = Math.sqrt(Math.pow(deltaRandom, 2) + Math.pow(deltaDevice, 2));
+
+        // 7. Относительная погрешность
+        let epsilon = 0;
+        if (mean !== 0) {
+            epsilon = (deltaTotal / Math.abs(mean)) * 100;
+        } else {
+            epsilon = Infinity;
+        }
+
+        // --- ФОРМИРОВАНИЕ ОТЧЕТА ---
+        let report = `Число измерений n = ${n}\n`;
+        report += `Цена деления прибора = ${price}\n`;
+        report += `Доверительная вероятность P = 0.95\n`;
+        report += `Коэффициент Стьюдента t = ${tCoeff.toFixed(3)}\n`;
+        report += `----------------------------------------\n`;
+        report += `Значения измерений:\n`;
+        values.forEach((x, i) => {
+            report += `  x${i+1} = ${x}\n`;
+        });
+        report += `----------------------------------------\n`;
+        report += `Среднее значение <x> = ${mean.toFixed(4)}\n`;
+        report += `СКО отдельного измерения Sx = ${sx.toFixed(4)}\n`;
+        report += `Случайная погрешность (Δx_случ) = ${deltaRandom.toFixed(4)}\n`;
+        report += `Приборная погрешность (Δx_приб) = ${deltaDevice.toFixed(4)}\n`;
+        report += `Полная абсолютная погрешность (Δx) = ${deltaTotal.toFixed(4)}\n`;
+        report += `Относительная погрешность (ε) = ${epsilon.toFixed(2)}%\n`;
+        report += `----------------------------------------\n`;
+
+        // Округление
+        if (deltaTotal > 0) {
+            const order = Math.floor(Math.log10(deltaTotal));
+            const factor = Math.pow(10, -order + 1);
+            const deltaRounded = Math.round(deltaTotal * factor) / factor;
+            const meanRounded = Math.round(mean * factor) / factor;
+            
+            report += `Результат: X = (${meanRounded} ± ${deltaRounded}) ед.\n`;
+            report += `ε = ${epsilon.toFixed(1)}%`;
+        } else {
+            report += `Результат: X = ${mean} (погрешность равна 0)`;
+        }
+
+        // Вывод
+        resultBox.textContent = report;
+        resultBox.style.display = 'block';
+    }
+
+    // Инициализация при загрузке страницы
+    window.onload = function() {
+        createFields();
+    };
+</script>
+
+</body>
+</html>
